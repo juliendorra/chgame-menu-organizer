@@ -7,13 +7,13 @@ const assetHosts = new Set([
 const releasePath = /^\/[^/]+\/[^/]+\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+\.chgame$/i;
 const redirectCodes = new Set([301, 302, 303, 307, 308]);
 
-function isRelease(url) {
+function isReleaseAsset(url) {
   return url?.origin === githubOrigin && !url.username && !url.password && releasePath.test(url.pathname);
 }
 
 export async function githubRelease(value, fetcher = fetch) {
   let url = URL.parse(value ?? '');
-  if (!isRelease(url)) return new Response('Expected a GitHub .chgame release URL', {status: 400});
+  if (!isReleaseAsset(url)) return new Response('Expected a GitHub .chgame release URL', {status: 400});
   url.search = '';
   url.hash = '';
   const signal = AbortSignal.timeout(25000);
@@ -25,7 +25,7 @@ export async function githubRelease(value, fetcher = fetch) {
         const target = next && URL.parse(next, url);
         await upstream.body?.cancel();
         if (!target || target.username || target.password ||
-            !(isRelease(target) || assetHosts.has(target.origin))) break;
+            !(isReleaseAsset(target) || assetHosts.has(target.origin))) break;
         url = target;
         continue;
       }
