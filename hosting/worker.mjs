@@ -1,5 +1,5 @@
 const packageLimit = 64 * 1024 * 1024;
-const github = 'https://github.com';
+const githubOrigin = 'https://github.com';
 const assetHosts = new Set([
   'https://release-assets.githubusercontent.com',
   'https://objects.githubusercontent.com',
@@ -8,7 +8,7 @@ const releasePath = /^\/[^/]+\/[^/]+\/releases\/(?:download\/[^/]+|latest\/downl
 const redirectCodes = new Set([301, 302, 303, 307, 308]);
 
 function isRelease(url) {
-  return url?.origin === github && !url.username && !url.password && releasePath.test(url.pathname);
+  return url?.origin === githubOrigin && !url.username && !url.password && releasePath.test(url.pathname);
 }
 
 export async function githubRelease(value, fetcher = fetch) {
