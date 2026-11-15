@@ -45,11 +45,11 @@ jobs:
             jq -e '.success == true and .result.id == "chgame-release-relay"'
       - name: Check the public relay
         env:
+          GH_TOKEN: ${{ github.token }}
           RELAY_URL: ${{ vars.RELEASE_RELAY_URL }}
         run: |
           set -euo pipefail
-          asset=$(curl --fail --silent --show-error --retry 3 \
-            https://api.github.com/repos/juliendorra/chgame-pinball/releases/latest |
+          asset=$(gh api repos/juliendorra/chgame-pinball/releases/latest |
             jq -ce '[.assets[] | select(.state == "uploaded" and (.name | endswith(".chgame")))] |
               select(length == 1) | .[0]')
           url=$(jq -er '.browser_download_url' <<< "$asset")
