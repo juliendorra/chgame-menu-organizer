@@ -4,6 +4,9 @@ import {prepareArchive} from './package.mjs';
 import {PACKAGE_LIMIT} from './zip.mjs';
 
 const parent = path => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+const github = 'https://github.com';
+const latestReleasePath = /^\/([a-z0-9-]+\/[a-z0-9_.-]+)\/releases\/latest\/?$/i;
+const releaseAssetPath = /^\/([^/]+\/[^/]+)\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+\.chgame$/i;
 
 export function packageSourceUrl(value, page) {
   const url = URL.parse(value ?? '');
@@ -36,11 +39,37 @@ export function linkedPackageUrl(location) {
   return url;
 }
 
+async function latestReleaseAsset(repo, fetcher) {
+  const endpoint = new URL(`https://api.github.com/repos/${repo}/releases/latest`);
+  let release;
+  try {
+    const response = await fetcher(endpoint, {
+      credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    release = await response.json();
+  } catch (error) {
+    throw new Error(`Could not look up the latest GitHub release (${error.message})`);
+  }
+  const carts = (Array.isArray(release?.assets) ? release.assets : [])
+    .filter(asset => asset?.state === 'uploaded' && typeof asset.name === 'string' && /\.chgame$/i.test(asset.name));
+  if (!carts.length) throw new Error('The latest GitHub release has no .chgame file');
+  if (carts.length > 1) throw new Error('The latest release has several .chgame files. Link to a specific cart.');
+  const url = URL.parse(carts[0].browser_download_url ?? '');
+  const match = url && releaseAssetPath.exec(url.pathname);
+  if (url?.origin !== github || url.username || url.password || match?.[1].toLowerCase() !== repo.toLowerCase()) {
+    throw new Error('GitHub returned an invalid cart download URL');
+  }
+  return url;
+}
+
 export async function prepareLinkedPackage(url, fetcher = fetch, releaseEndpoint) {
-  const isRelease = url.origin === 'https://github.com' &&
-    /^\/[^/]+\/[^/]+\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+\.chgame$/i.test(url.pathname);
-  const download = releaseEndpoint && isRelease ? new URL(releaseEndpoint) : url;
-  if (download !== url) download.searchParams.set('url', url.href);
+  const latest = url.origin === github && latestReleasePath.exec(url.pathname);
+  if (latest && !releaseEndpoint) throw new Error('Use the hosted organizer to preview the latest GitHub release');
+  const isRelease = url.origin === github && releaseAssetPath.test(url.pathname);
+  const asset = latest ? await latestReleaseAsset(latest[1], fetcher) : url;
+  const download = releaseEndpoint && (latest || isRelease) ? new URL(releaseEndpoint) : url;
+  if (download !== url) download.searchParams.set('url', asset.href);
   let response;
   try {
     response = await fetcher(download, {

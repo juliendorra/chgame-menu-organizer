@@ -184,3 +184,24 @@ test('linked imports prefer the fragment and prepare an HTTPS cart without crede
   });
   assert.deepEqual(remote, await preparePackage(new File([bytes], 'single.chgame')));
 });
+
+test('latest GitHub links resolve the current versioned cart through the relay', async () => {
+  const latest = new URL('https://github.com/example/carts/releases/latest');
+  const endpoint = new URL('https://organizer.example/api/github-release');
+  const fixture = readFileSync(new URL('./fixtures/single.chgame', import.meta.url));
+  const fetchVersion = tag => async url => {
+    const name = `Pinball-${tag}.chgame`;
+    const asset = {name, state: 'uploaded', browser_download_url: `https://github.com/example/carts/releases/download/${tag}/${name}`};
+    if (url.origin === 'https://api.github.com') {
+      assert.equal(url.pathname, '/repos/example/carts/releases/latest');
+      return Response.json({assets: [asset, {name: 'notes.txt', state: 'uploaded'}]});
+    }
+    assert.equal(url.origin + url.pathname, endpoint.href);
+    assert.equal(url.searchParams.get('url'), asset.browser_download_url);
+    return new Response(fixture);
+  };
+  for (const tag of ['v1', 'v2']) {
+    assert.equal((await prepareLinkedPackage(latest, fetchVersion(tag), endpoint)).title, 'HELLO');
+  }
+  await assert.rejects(prepareLinkedPackage(latest, async () => Response.json({assets: []}), endpoint), /no .chgame/);
+});
