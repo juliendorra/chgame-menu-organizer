@@ -1,0 +1,170 @@
+import {encodeIndex, MAX_ENTRIES, parseIndex, sameListing, sfn, uniqueShortName} from './menu.mjs';
+import {ascii, crc32, equal, string} from './serial.mjs';
+import {prepareArchive} from './package.mjs';
+import {PACKAGE_LIMIT} from './zip.mjs';
+
+const parent = path => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+
+export async function preparePackage(file) {
+  if (!/\.chgame$/i.test(file.name)) throw new Error('Choose a .chgame package');
+  if (file.size > PACKAGE_LIMIT) throw new Error('The package exceeds 64 MiB');
+  return prepareArchive(new Uint8Array(await file.arrayBuffer()));
+}
+
+function packageTree(pkg) {
+  const files = new Map(pkg.files.map(file => {
+    if (file.path.length > 120 || !file.path.split('/').every(part => sfn.test(part)) ||
+        /^(SAVES(?:\/|$)|_CHWEB)/.test(file.path)) throw new Error(`Unsupported SD path: ${file.path}`);
+    return [file.path, file.data];
+  }));
+  function walk(path) {
+    const entries = [...parseIndex(files.get(path + '/MENU.IDX')).values()].map(record => {
+      const base = string(record.subarray(0, 8)).trimEnd();
+      const ext = string(record.subarray(8, 11)).trimEnd();
+      const name = ext ? base + '.' + ext : base;
+      if (!sfn.test(name)) throw new Error('Invalid package menu entry');
+      const full = path + '/' + name;
+      if (ext === 'CHG' && files.has(full)) return {name, bytes: files.get(full)};
+      if (!files.has(full + '/MENU.IDX')) throw new Error(`Missing package entry ${full}`);
+      return {name, title: string(record.subarray(12)) || name, tree: walk(full)};
+    });
+    const art = ['MENU.BG', 'COVER.PIC'].filter(name => files.has(path + '/' + name))
+      .map(name => ({name, bytes: files.get(path + '/' + name)}));
+    return {entries, art};
+  }
+  return {
+    tree: walk('GAMES'),
+    assets: [...files].filter(([name]) => !name.startsWith('GAMES/')).map(([path, bytes]) => ({path, bytes})),
+  };
+}
+
+function gameCount(tree) {
+  return tree.entries.reduce((n, entry) => n + (entry.tree ? gameCount(entry.tree) : 1), 0);
+}
+
+export function packageGameCount(pkg) {
+  return pkg.files.filter(file => file.path.startsWith('GAMES/') && file.path.endsWith('.CHG')).length;
+}
+
+async function planAssets(card, assets) {
+  const dirs = new Set();
+  for (const file of assets) for (let dir = parent(file.path); dir; dir = parent(dir)) dirs.add(dir);
+  const existing = new Map();
+  if (assets.length) existing.set('', await card.list(''));
+  const directories = [];
+  for (const dir of [...dirs].sort((a, b) => a.length - b.length)) {
+    const found = existing.get(parent(dir))?.find(file => file.name === dir.split('/').at(-1));
+    if (found && !found.directory) throw new Error(`A file blocks the package folder ${dir}`);
+    if (found) existing.set(dir, await card.list(dir));
+    else directories.push(dir);
+  }
+  const files = [];
+  for (const file of assets) {
+    const found = existing.get(parent(file.path))?.find(entry => entry.name === file.path.split('/').at(-1));
+    if (!found) files.push(file);
+    else if (found.directory || found.size !== file.bytes.length ||
+             (found.size && await card.check(file.path, found.size) !== crc32(file.bytes))) {
+      throw new Error(`The package conflicts with an existing SD item at ${file.path}`);
+    }
+  }
+  return {directories, files};
+}
+
+export async function planImport(card, menu, pkg, destination, makeCover) {
+  const {tree, assets} = packageTree(pkg);
+  const {directories, files} = await planAssets(card, assets);
+  const working = new Map();
+  let added = 0;
+
+  async function open(folder) {
+    if (working.has(folder.path)) return working.get(folder.path);
+    if (folder.overLimit || folder.editBlocked) throw new Error(`${folder.title} cannot be edited`);
+    const listing = await card.list(folder.path);
+    const indexPath = folder.path + '/MENU.IDX';
+    const index = listing.find(file => file.name === 'MENU.IDX' && !file.directory);
+    if ((index?.size ?? 0) !== (folder.index?.length ?? 0) ||
+        !equal(index ? await card.read(indexPath, 0, index.size) : null, folder.index) ||
+        !sameListing(folder.files, listing)) {
+      throw new Error(`${folder.title} changed on the SD. Rescan first.`);
+    }
+    const state = {path: folder.path, depth: folder.depth, title: folder.title, entries: folder.entries.slice(),
+      listing: new Map(listing.map(file => [file.name, file])), changed: false};
+    working.set(state.path, state);
+    return state;
+  }
+
+  function append(state, entry) {
+    if (state.entries.length >= MAX_ENTRIES) throw new Error(`${state.title} has no room for another entry`);
+    state.entries.push(entry);
+    state.listing.set(entry.name, entry);
+    state.changed = true;
+  }
+
+  async function openCategory(state, entry) {
+    const matches = state.entries.filter(item => item.directory &&
+      item.title.toUpperCase() === entry.title.toUpperCase());
+    if (matches.length > 1) throw new Error(`More than one category is named ${entry.title} in ${state.title}`);
+    const [match] = matches;
+    if (match) {
+      const folder = working.get(match.path) ?? menu.folders.find(item => item.path === match.path);
+      if (!folder) throw new Error(`${match.title} exceeds the supported category depth`);
+      return working.get(match.path) ?? open(folder);
+    }
+    if (state.depth >= 4) throw new Error('The package has too many nested categories for this menu');
+    const name = uniqueShortName(entry.name, state.listing);
+    const path = state.path + '/' + name;
+    const record = new Uint8Array(32);
+    record.set(ascii(entry.title).subarray(0, 20), 12);
+    append(state, {name, path, title: entry.title, directory: true, record});
+    const created = {path, depth: state.depth + 1, title: entry.title, entries: [], listing: new Map(), changed: true};
+    working.set(path, created);
+    directories.push(path);
+    for (const art of entry.tree.art) files.push({path: path + '/' + art.name, bytes: art.bytes});
+    if (makeCover && !entry.tree.art.some(item => item.name === 'COVER.PIC')) {
+      files.push({path: path + '/COVER.PIC', bytes: makeCover(entry.title)});
+    }
+    return created;
+  }
+
+  async function addEntries(state, group, flatten) {
+    for (const entry of group.entries) {
+      if (entry.tree) {
+        await addEntries(flatten ? state : await openCategory(state, entry), entry.tree, flatten);
+        continue;
+      }
+      const existing = state.listing.get(entry.name);
+      if (existing && !existing.directory && existing.size === entry.bytes.length &&
+          !existing.planned && await card.check(state.path + '/' + entry.name, existing.size) === crc32(entry.bytes)) continue;
+      const name = uniqueShortName(entry.name, state.listing);
+      files.push({path: state.path + '/' + name, bytes: entry.bytes});
+      append(state, {name, size: entry.bytes.length, planned: true});
+      added++;
+    }
+  }
+
+  const target = await open(destination ?? menu.root);
+  await addEntries(target, tree, Boolean(destination));
+  const indexes = [...working.values()].filter(state => state.changed).sort((a, b) => b.depth - a.depth)
+    .map(state => ({path: state.path + '/MENU.IDX', bytes: encodeIndex(state.entries)}));
+  for (const {path} of [...files, ...indexes]) {
+    if (path.length > 120) throw new Error(`The SD path is too long: ${path}`);
+  }
+  return {games: gameCount(tree), added, target: target.path, directories, files, indexes};
+}
+
+export async function writeImport(card, plan, progress) {
+  if (plan.directories.length) progress('Creating categories and SD folders');
+  for (const dir of plan.directories) await card.mkdir(dir);
+  const files = [...plan.files, ...plan.indexes];
+  for (const [index, {path, bytes}] of files.entries()) {
+    const update = (done, phase) => progress(phase, {
+      file: path, fileNumber: index + 1, fileCount: files.length, done, total: bytes.length * 2,
+    });
+    update(0, 'Copying to SD');
+    await card.replace(path, bytes, update);
+  }
+  if (plan.directories.length || files.length) {
+    progress('Finishing SD writes');
+    await card.sync();
+  }
+}

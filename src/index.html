@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="icon" href="assets/cover.png" type="image/png">
+  <title>CHGame Menu Organizer</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="" aria-label="CHGame Menu Organizer"><span class="mark" aria-hidden="true">▦</span> CH<span>GAME</span></a>
+    <span class="divider"></span>
+    <span class="product">Menu Organizer</span>
+    <div class="device-actions">
+      <span id="mode" class="connection" role="status"><i aria-hidden="true"></i><span id="mode-label">Disconnected</span></span>
+      <button id="connect" class="primary">Connect CHGame <span aria-hidden="true">↗</span></button>
+    </div>
+  </header>
+
+  <main>
+      <div class="navigation" id="navigation" hidden>
+        <nav id="categories" aria-label="Menu categories"></nav>
+        <div id="device-controls" hidden>
+          <button id="rescan">Rescan SD</button>
+        </div>
+      </div>
+      <header class="category-header">
+        <div class="category-identity">
+          <button id="back-category" hidden>← Back</button>
+          <img class="cover" id="cover" src="assets/cover.png" alt="">
+          <div>
+            <h1 id="heading">
+              <span id="category-label">Your SD menu</span>
+              <button type="button" id="rename-category" class="rename-category" hidden>
+                <span id="rename-label"></span><span class="rename-icon" aria-hidden="true">✎</span>
+              </button>
+            </h1>
+            <form id="rename-form" class="rename-form" hidden>
+              <input id="category-name" aria-label="Category name" autocomplete="off" spellcheck="false">
+              <button type="submit" class="primary">Done</button>
+              <button type="button" id="cancel-rename">Cancel</button>
+            </form>
+            <p id="summary"></p>
+          </div>
+        </div>
+        <div class="toolbar-actions" id="menu-toolbar" hidden>
+          <select id="auto-organize" aria-label="Auto organize">
+            <option value="">Auto organize</option>
+            <option value="alphabetical">Alphabetical</option>
+            <option value="newest" id="newest-option">Newest first</option>
+            <option value="restore" id="restore-order" disabled>Restore manual order</option>
+          </select>
+          <button id="remove-category" class="danger" hidden>Remove category</button>
+          <button id="import">Import .chgame</button>
+          <button id="undo" disabled>Reset changes</button>
+          <button id="save" class="primary" disabled>Save to SD</button>
+        </div>
+      </header>
+      <p class="status" id="status" role="status"></p>
+      <section id="transfer" class="transfer" aria-labelledby="transfer-title" hidden>
+        <span class="transfer-icon" aria-hidden="true"></span>
+        <div class="transfer-body">
+          <div class="transfer-heading">
+            <h2 id="transfer-title"></h2>
+            <span id="transfer-count"></span>
+          </div>
+          <div id="transfer-phase" role="status"></div>
+          <div id="transfer-file" hidden></div>
+          <div class="transfer-track" id="transfer-track" role="progressbar" aria-label="Current SD transfer">
+            <span id="transfer-fill"></span>
+          </div>
+        </div>
+      </section>
+      <div class="content" id="menu-content" hidden>
+        <section class="shelf" id="shelf" aria-labelledby="heading">
+          <aside class="inspector" id="inspector" aria-label="Selected entry" hidden></aside>
+          <span id="insertion-bar" class="insertion-bar" aria-hidden="true" hidden></span>
+        </section>
+      </div>
+  </main>
+  <input id="package-file" type="file" accept=".chgame" hidden>
+  <dialog id="install-dialog" aria-labelledby="install-title">
+    <form method="dialog">
+      <h2>Allow SD helper uploads?</h2>
+      <p>The helper replaces the game in console memory. You can relaunch games from the SD card.</p>
+      <div class="dialog-actions"><button value="cancel" autofocus>Cancel</button><button class="primary" value="install">Allow and remember</button></div>
+    </form>
+  </dialog>
+  <dialog id="confirmation" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+    <form method="dialog">
+      <h2 id="confirmation-title"></h2>
+      <p id="confirmation-message"></p>
+      <p id="confirmation-detail" hidden></p>
+      <fieldset id="confirmation-choices" class="dialog-choices" hidden></fieldset>
+      <label id="confirmation-field" class="dialog-field" hidden>
+        <span id="confirmation-field-label"></span>
+        <input id="confirmation-input" autocomplete="off">
+      </label>
+      <div id="cover-generator" class="cover-generator" hidden>
+        <img id="generated-cover" width="128" height="128" alt="Category cover preview">
+        <button id="shuffle-cover" type="button">↻ Shuffle cover</button>
+      </div>
+      <div class="dialog-actions">
+        <button id="confirmation-cancel" type="button" autofocus>Cancel</button>
+        <button id="confirmation-accept" class="primary" value="accept"></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
