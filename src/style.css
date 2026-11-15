@@ -82,6 +82,18 @@ p { color: var(--muted); margin: .48em 0 0; }
 .status { margin: 10px 0 14px; font-size: .87rem; }
 .status:empty { display: none; }
 .status[data-error="true"] { color: #a22545; }
+.cart-preview { margin-block: 12px 16px; padding: 14px; border: 1px solid #c9adef; background: white; border-radius: 12px; }
+.preview-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px 16px; }
+.preview-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#preview-cover { display: block; flex: 0 0 auto; width: 96px; height: 96px; border-radius: 7px; image-rendering: pixelated; }
+.preview-header h2 { overflow-wrap: anywhere; }
+.preview-header p, .preview-device { font-size: .88rem; overflow-wrap: anywhere; }
+.preview-games { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: 6px; padding: 0; margin: 12px 0 0; max-height: 18rem; overflow: auto; list-style: none; }
+.preview-games li { padding: 6px 8px; border-radius: 7px; background: var(--tint); overflow-wrap: anywhere; }
+.preview-games small { display: block; color: var(--muted); }
+.preview-assets { margin-top: 10px; color: var(--muted); font-size: .88rem; }
+.preview-assets summary { cursor: pointer; }
+.preview-assets ul { max-height: 12rem; overflow: auto; overflow-wrap: anywhere; font-family: var(--mono); }
 .transfer {
   position: sticky; top: 10px; z-index: 3; display: flex; align-items: flex-start; gap: 12px;
   margin-block: 12px 16px; padding: 12px 14px; border-radius: 12px;

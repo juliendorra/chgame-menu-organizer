@@ -1,9 +1,16 @@
-import {encodeIndex, MAX_ENTRIES, parseIndex, sameListing, sfn, uniqueShortName} from './menu.mjs';
+import {cartHeader, encodeIndex, MAX_ENTRIES, parseIndex, sameListing, sfn, uniqueShortName} from './menu.mjs';
 import {ascii, crc32, equal, string} from './serial.mjs';
 import {prepareArchive} from './package.mjs';
 import {PACKAGE_LIMIT} from './zip.mjs';
 
 const parent = path => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+
+export function packageSourceUrl(value, page) {
+  const url = URL.parse(value ?? '');
+  if (url?.protocol !== 'https:' || url.username || url.password ||
+      url.origin === page.origin || ['juliendorra.com', 'www.juliendorra.com'].includes(url.hostname)) return null;
+  return url;
+}
 
 export async function preparePackage(file) {
   if (!/\.chgame$/i.test(file.name)) throw new Error('Choose a .chgame package');
@@ -21,23 +28,33 @@ export function linkedPackageUrl(location) {
   } catch {
     throw new Error('The import link needs an absolute HTTPS URL');
   }
-  if (url.protocol !== 'https:' || url.username || url.password) {
+  const local = url.protocol === 'http:' && url.origin === params.origin &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if ((!local && url.protocol !== 'https:') || url.username || url.password) {
     throw new Error('The import link needs an HTTPS URL without credentials');
   }
   return url;
 }
 
-export async function prepareLinkedPackage(url, fetcher = fetch) {
+export async function prepareLinkedPackage(url, fetcher = fetch, releaseEndpoint) {
+  const isRelease = url.origin === 'https://github.com' &&
+    /^\/[^/]+\/[^/]+\/releases\/(?:download\/[^/]+|latest\/download)\/[^/]+\.chgame$/i.test(url.pathname);
+  const download = releaseEndpoint && isRelease ? new URL(releaseEndpoint) : url;
+  if (download !== url) download.searchParams.set('url', url.href);
   let response;
   try {
-    response = await fetcher(url, {
-      credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
+    response = await fetcher(download, {
+      credentials: download === url ? 'omit' : 'same-origin',
+      referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
     });
   } catch {
     throw new Error('Could not download the linked cart. Check that the file host allows cross-origin downloads.');
   }
   if (!response.ok || !response.body) throw new Error(`Could not download the linked cart (HTTP ${response.status})`);
-  if (response.url && new URL(response.url).protocol !== 'https:') throw new Error('The cart download redirected away from HTTPS');
+  if (response.url) {
+    const target = new URL(response.url);
+    if (target.protocol !== 'https:' && target.origin !== download.origin) throw new Error('The cart download redirected away from HTTPS');
+  }
   if (Number(response.headers.get('Content-Length')) > PACKAGE_LIMIT) throw new Error('The package exceeds 64 MiB');
   const reader = response.body.getReader();
   const chunks = [];
@@ -87,8 +104,21 @@ function gameCount(tree) {
   return tree.entries.reduce((n, entry) => n + (entry.tree ? gameCount(entry.tree) : 1), 0);
 }
 
-export function packageGameCount(pkg) {
-  return pkg.files.filter(file => file.path.startsWith('GAMES/') && file.path.endsWith('.CHG')).length;
+export function describePackage(pkg) {
+  const {tree, assets} = packageTree(pkg);
+  const games = [];
+  function collect(group, folders) {
+    for (const entry of group.entries) {
+      if (entry.tree) {
+        collect(entry.tree, [...folders, entry.title]);
+      } else {
+        const header = cartHeader(entry.bytes.subarray(0, 512), entry.bytes.length);
+        games.push({title: header.title || entry.name, version: header.version, folders});
+      }
+    }
+  }
+  collect(tree, []);
+  return {games, assets: assets.map(asset => asset.path).sort()};
 }
 
 async function planAssets(card, assets) {

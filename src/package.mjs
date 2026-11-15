@@ -201,9 +201,10 @@ async function loadGame(game, archive, assets, decode, where) {
   if (Object.keys(licenses).length) record.licenseFiles = licenses;
   const ownAssets = loadAssets(game, archive, assets, where);
   if (ownAssets.length) record.sdcard = ownAssets;
+  let png;
   let art;
   if (Object.hasOwn(game, 'cartImage')) {
-    const png = fileAt(archive, game.cartImage, where + 'cartImage');
+    png = fileAt(archive, game.cartImage, where + 'cartImage');
     art = await picture(png, uiColors, decode, where + 'cartImage', true);
     record.cartImage = base64(png);
   }
@@ -214,7 +215,7 @@ async function loadGame(game, archive, assets, decode, where) {
   if (parts.length > 4 || parts.some(part => !part || part.length > CATEGORY_TITLE_LIMIT || part !== part.trim() || !validText.test(part))) {
     cartError(where + 'folder', 'invalid category path');
   }
-  return {id, title, parts, bytes: chgFile(record.game, image, art, metadata)};
+  return {id, title, parts, previewArt: png, bytes: chgFile(record.game, image, art, metadata)};
 }
 
 async function menuArtwork(manifest, archive, decode) {
@@ -251,7 +252,7 @@ async function menuArtwork(manifest, archive, decode) {
     }
     metadata.set(name, entry);
   }
-  return metadata;
+  return {metadata, cover: Object.hasOwn(menu, 'cover') ? archive.get(menu.cover) : undefined};
 }
 
 function runtimeFiles(games, assets, artwork, launch) {
@@ -338,6 +339,11 @@ export async function prepareArchive(bytes, decode = browserPixels) {
     ids.add(game.id);
   }
   if (launch && !ids.has(launch)) cartError('launch', 'the selected game does not exist');
-  const artwork = await menuArtwork(manifest, archive, decode);
-  return {title, files: runtimeFiles(games, assets, artwork, launch)};
+  const {metadata, cover} = await menuArtwork(manifest, archive, decode);
+  return {
+    title,
+    files: runtimeFiles(games, assets, metadata, launch),
+    cover: cover ?? games.find(game => game.previewArt)?.previewArt,
+    sourceUrl: manifest.sourceUrl || (items.length === 1 ? items[0].sourceUrl : ''),
+  };
 }

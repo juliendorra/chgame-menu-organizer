@@ -1,6 +1,6 @@
 import {chooseCHGame, grantedCHGame, installHelper, Link, SerialCard} from './serial.mjs';
 import {CATEGORY_TITLE_LIMIT, changedFolders, moveCarts, newCategory, organizeFolder, planRemoval, readPoster, renameCategory, resetMenu, sameMenuSnapshot, saveMenu, scanMenu, stageRemoval} from './menu.mjs';
-import {linkedPackageUrl, packageGameCount, planImport, prepareLinkedPackage, preparePackage, writeImport} from './import.mjs';
+import {describePackage, linkedPackageUrl, packageSourceUrl, planImport, prepareLinkedPackage, preparePackage, writeImport} from './import.mjs';
 import {coverStyle, generateCover} from './cover.mjs';
 
 const $ = id => document.getElementById(id);
@@ -31,7 +31,9 @@ let reconnectTimer;
 let reconnectPending = false;
 let helperExit;
 let usbState = 'Disconnected';
-let linkedCart;
+let cartPreview;
+let previewRequest = 0;
+let previewCoverUrl;
 
 function el(tag, label, className) {
   const node = document.createElement(tag);
@@ -150,7 +152,16 @@ function renderControls() {
   $('undo').disabled = busy || !count;
   $('save').disabled = busy || stale || !count || !linked;
   $('save').textContent = count ? `Save to SD (${count})` : 'Save to SD';
-  $('import').disabled = busy || stale || !linked || Boolean(count);
+  $('import').disabled = busy;
+  $('open-cart').hidden = folder !== offline;
+  $('open-cart').disabled = busy;
+  $('preview-dismiss').disabled = busy;
+  $('preview-import').disabled = busy || !cartPreview?.pkg || stale || !linked || Boolean(count);
+  const availability = !linked ? 'Connect your CHGame to install this cart.' :
+    stale ? 'Rescan the SD card before installing.' :
+    count ? 'Save or reset your menu changes before installing.' : '';
+  $('preview-device').textContent = availability;
+  $('preview-device').hidden = !cartPreview?.pkg || !availability;
   $('auto-organize').disabled = Boolean(locked()) || folder.entries.length < 2;
   $('newest-option').textContent = card?.timestamps ? 'Newest first' : 'Newest first · update helper';
   $('restore-order').disabled = !folder.manualOrder;
@@ -572,7 +583,6 @@ async function exclusive(action) {
     busy = false;
     render();
     if (reconnectPending) queueReconnect();
-    maybeReviewLinkedCart();
   }
 }
 
@@ -875,29 +885,88 @@ $('undo').onclick = () => {
   setSelection([...selection].filter(entry => folder.entries.includes(entry)));
   render();
   report(guidance);
-  maybeReviewLinkedCart();
 };
 
-function maybeReviewLinkedCart() {
-  if (!linkedCart || busy || !card || stale || lostLink || changedFolders(menu).length) return;
-  const url = linkedCart;
-  linkedCart = null;
-  void importPackage(url);
+function showCartPreview(preview) {
+  cartPreview = preview;
+  $('cart-preview').hidden = !preview;
+  if (previewCoverUrl) URL.revokeObjectURL(previewCoverUrl);
+  const cover = $('preview-cover');
+  previewCoverUrl = preview?.pkg?.cover ? URL.createObjectURL(new Blob([preview.pkg.cover], {type: 'image/png'})) : undefined;
+  cover.hidden = !previewCoverUrl;
+  if (previewCoverUrl) cover.src = previewCoverUrl;
+  else cover.removeAttribute('src');
+  if (preview) {
+    $('preview-title').textContent = preview.title;
+    $('preview-summary').textContent = preview.message;
+    const source = packageSourceUrl(preview.pkg?.sourceUrl, location);
+    for (const [id, url, label] of [
+      ['preview-download', preview.download, preview.download?.host],
+      ['preview-source', source, source && `Source code · ${source.host}`],
+    ]) {
+      const line = $(id);
+      const link = line.querySelector('a');
+      line.hidden = !url;
+      if (url) {
+        link.href = url.href;
+        link.textContent = label;
+      } else {
+        link.removeAttribute('href');
+        link.textContent = '';
+      }
+    }
+    const games = $('preview-games');
+    games.hidden = !preview.games?.length;
+    games.replaceChildren();
+    for (const game of preview.games ?? []) {
+      const item = el('li');
+      item.append(el('strong', game.title));
+      const details = [game.folders.join(' / '), game.version && `v${game.version}`].filter(Boolean);
+      if (details.length) item.append(el('small', details.join(' · ')));
+      games.append(item);
+    }
+    const assets = $('preview-assets');
+    assets.hidden = !preview.assets?.length;
+    assets.open = false;
+    $('preview-asset-count').textContent = preview.assets?.length === 1 ? '1 SD asset' : `${preview.assets?.length ?? 0} SD assets`;
+    $('preview-asset-files').replaceChildren(...(preview.assets ?? []).map(path => el('li', path)));
+  }
+  renderControls();
 }
 
-function importPackage(source) {
+async function reviewPackage(source) {
+  const request = ++previewRequest;
+  const linked = source instanceof URL;
+  const label = linked ? (source.origin === location.origin ? source.pathname.split('/').at(-1) : source.hostname) : source.name;
+  showCartPreview({title: 'Opening cart…', message: label});
+  try {
+    const endpoint = document.querySelector('meta[name="github-release-endpoint"]')?.content;
+    const pkg = linked
+      ? await prepareLinkedPackage(source, fetch, endpoint && new URL(endpoint, location.href))
+      : await preparePackage(source);
+    if (request !== previewRequest) return;
+    const {games, assets} = describePackage(pkg);
+    const count = `${games.length} ${games.length === 1 ? 'game' : 'games'}`;
+    showCartPreview({pkg, title: pkg.title, message: linked ? count : `${count} · ${label}`,
+      download: linked ? source : null, games, assets});
+  } catch (error) {
+    if (request === previewRequest) showCartPreview({title: 'Could not open cart', message: error.message});
+  }
+}
+
+function importPreview() {
+  const preview = cartPreview;
+  if (!preview?.pkg) return;
   return exclusive(async () => {
-    if (!card || stale) throw new Error('Connect and scan your CHGame before importing a package');
-    if (changedFolders(menu).length) throw new Error('Save or reset the pending menu changes before importing');
-    const linked = source instanceof URL;
-    report(linked ? `Preparing linked cart from ${source.hostname}…` : `Preparing ${source.name}…`);
-    const pkg = linked ? await prepareLinkedPackage(source) : await preparePackage(source);
-    const games = packageGameCount(pkg);
+    if (!card || stale) throw new Error('Connect and scan your CHGame before installing a cart');
+    if (changedFolders(menu).length) throw new Error('Save or reset the pending menu changes before installing');
+    const {pkg, games} = preview;
+    const count = games.length;
     const destination = await confirmAction({
-      title: 'Import to SD?',
-      message: `“${pkg.title}” contains ${games} ${games === 1 ? 'cart' : 'carts'}.`,
+      title: 'Install to SD?',
+      message: `“${pkg.title}” contains ${count} ${count === 1 ? 'cart' : 'carts'}.`,
       detail: 'This writes to the SD card now. Existing games and saves are kept.',
-      action: 'Import to SD',
+      action: 'Install to SD',
       choices: [
         {value: 'package', label: 'Package categories', detail: 'Use the folders declared in the package.'},
         {value: 'current', label: `Current category · ${folder.title}`, detail: 'Put every cart here.'},
@@ -907,7 +976,7 @@ function importPackage(source) {
       report(guidance);
       return;
     }
-    beginTransfer('Importing to SD', 'Checking destination and shared SD files…');
+    beginTransfer('Installing to SD', 'Checking destination and shared SD files…');
     let writing = false;
     try {
       const plan = await planImport(card, menu, pkg, destination === 'current' ? folder : null,
@@ -918,21 +987,28 @@ function importPackage(source) {
       menu = installed;
       folder = installed.folders.find(item => item.path === plan.target) ?? installed.root;
       setSelection([]);
-      finishTransfer('Import complete', plan.added
-        ? `Imported ${plan.added} ${plan.added === 1 ? 'cart' : 'carts'}. ${plan.games > plan.added ? 'Existing copies were kept.' : ''}`.trim()
+      if (cartPreview === preview) showCartPreview(null);
+      finishTransfer('Installation complete', plan.added
+        ? `Installed ${plan.added} ${plan.added === 1 ? 'cart' : 'carts'}. ${plan.games > plan.added ? 'Existing copies were kept.' : ''}`.trim()
         : 'These carts are already on the SD.');
     } catch (error) {
       stale ||= writing;
-      finishTransfer('Import failed', writing ? `${error.message} Rescan to check which files were written.` : error.message, true);
+      finishTransfer('Installation failed', writing ? `${error.message} Rescan to check which files were written.` : error.message, true);
     }
   });
 }
 
 $('import').onclick = () => $('package-file').click();
+$('open-cart').onclick = $('import').onclick;
+$('preview-dismiss').onclick = () => {
+  previewRequest++;
+  showCartPreview(null);
+};
+$('preview-import').onclick = importPreview;
 $('package-file').onchange = event => {
   const [file] = event.target.files;
   event.target.value = '';
-  if (file) importPackage(file);
+  if (file && !busy) void reviewPackage(file);
 };
 
 window.addEventListener('dragover', event => {
@@ -948,7 +1024,8 @@ window.addEventListener('drop', event => {
   if (!event.dataTransfer.types.includes('Files')) return;
   event.preventDefault();
   delete document.body.dataset.importDrop;
-  if (event.dataTransfer.files.length === 1) importPackage(event.dataTransfer.files[0]);
+  if (busy) return;
+  if (event.dataTransfer.files.length === 1) void reviewPackage(event.dataTransfer.files[0]);
   else report('Drop one .chgame package at a time.', true);
 });
 
@@ -1001,14 +1078,13 @@ window.addEventListener('beforeunload', event => {
 });
 
 function readLinkedCart() {
-  linkedCart = null;
   try {
-    linkedCart = linkedPackageUrl(location.href);
-    if (linkedCart && !card) report(`Connect CHGame to review the linked cart from ${linkedCart.hostname}.`);
+    const url = linkedPackageUrl(location.href);
+    if (url) void reviewPackage(url);
   } catch (error) {
-    report(error.message, true);
+    previewRequest++;
+    showCartPreview({title: 'Could not open cart', message: error.message});
   }
-  maybeReviewLinkedCart();
 }
 
 window.addEventListener('hashchange', readLinkedCart);

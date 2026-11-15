@@ -3,10 +3,19 @@ import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import {ascii, crc32, frame, Frames, grantedCHGame, installHelper, join, Link, SerialCard, view, word} from '../src/serial.mjs';
 import {organizeFolder} from '../src/menu.mjs';
-import {linkedPackageUrl, prepareLinkedPackage, preparePackage} from '../src/import.mjs';
+import {linkedPackageUrl, packageSourceUrl, prepareLinkedPackage, preparePackage} from '../src/import.mjs';
 import {coverStyle, encodeCover} from '../src/cover.mjs';
 
 const vectors = JSON.parse(readFileSync(new URL('./fixtures/vectors.json', import.meta.url)));
+
+test('cart source links accept absolute external HTTPS destinations', () => {
+  const page = new URL('https://juliendorra.com/chgame-menu-organizer/');
+  assert.equal(packageSourceUrl('https://github.com/example/game', page)?.href, 'https://github.com/example/game');
+  for (const value of ['', '/path', '//other.example/path', 'javascript:', 'data:text/html,hello',
+    'https://github.com@other.example/path', 'https://www.juliendorra.com/politicayab/']) {
+    assert.equal(packageSourceUrl(value, page), null, value);
+  }
+});
 
 test('bootloader vectors and serial framing across USB packet boundaries', () => {
   const parser = new Frames();

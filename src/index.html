@@ -54,12 +54,35 @@
             <option value="restore" id="restore-order" disabled>Restore manual order</option>
           </select>
           <button id="remove-category" class="danger" hidden>Remove category</button>
-          <button id="import">Import .chgame</button>
+          <button id="import">Open .chgame</button>
           <button id="undo" disabled>Reset changes</button>
           <button id="save" class="primary" disabled>Save to SD</button>
         </div>
+        <button id="open-cart" hidden>Open .chgame</button>
       </header>
       <p class="status" id="status" role="status"></p>
+      <section id="cart-preview" class="cart-preview" aria-labelledby="preview-title" hidden>
+        <div class="preview-header">
+          <div class="preview-identity">
+            <img id="preview-cover" width="128" height="128" alt="Packaged cart cover" hidden>
+            <div>
+              <h2 id="preview-title"></h2>
+              <p role="status"><span id="preview-summary"></span><span id="preview-download" hidden> · <a target="_blank" rel="noopener noreferrer"></a></span></p>
+              <p id="preview-source" hidden><a target="_blank" rel="noopener noreferrer"></a></p>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <button id="preview-dismiss">Dismiss</button>
+            <button id="preview-import" class="primary" disabled>Install to SD</button>
+          </div>
+        </div>
+        <ul id="preview-games" class="preview-games" hidden></ul>
+        <details id="preview-assets" class="preview-assets" hidden>
+          <summary id="preview-asset-count"></summary>
+          <ul id="preview-asset-files"></ul>
+        </details>
+        <p id="preview-device" class="preview-device" hidden></p>
+      </section>
       <section id="transfer" class="transfer" aria-labelledby="transfer-title" hidden>
         <span class="transfer-icon" aria-hidden="true"></span>
         <div class="transfer-body">
