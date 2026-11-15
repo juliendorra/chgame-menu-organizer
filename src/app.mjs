@@ -362,15 +362,15 @@ function renderInspector() {
   const single = entries.length === 1;
   const entry = entries[0];
   const protectedEntry = entries.some(item => item.record?.[11] & 1);
-  inspector.append(el('h2', single ? entry.title : `${entries.length} selected`));
+  inspector.setAttribute('aria-label', single ? `Actions for ${entry.title}` : 'Actions for selected items');
+  if (!single) inspector.append(el('h2', `${entries.length} selected`));
   if (single) {
-    inspector.append(el('small', entry.author || entry.name));
     if (entry.entries) inspector.append(button('Open category →', () => openFolder(entry), busy));
     const position = folder.entries.indexOf(entry);
     const controls = el('div', undefined, 'controls');
-    const earlier = button('← Earlier', () => reorder(entry, position - 1), locked() || position <= 0);
+    const earlier = button('Before', () => reorder(entry, position - 1), locked() || position <= 0);
     earlier.dataset.earlier = '';
-    const later = button('Later →', () => reorder(entry, position + 1), locked() || position + 1 >= folder.entries.length);
+    const later = button('After', () => reorder(entry, position + 1), locked() || position + 1 >= folder.entries.length);
     later.dataset.later = '';
     controls.append(earlier, later);
     inspector.append(controls);
@@ -441,18 +441,27 @@ function applyCategoryCover(category, art) {
 
 function placeInspector() {
   if (inspector.hidden || $('menu-content').hidden) return;
-  const shelf = $('shelf');
-  const tiles = [...shelf.querySelectorAll('.tile-slot')];
-  const columns = shelfColumns();
-  const index = folder.entries.indexOf(selected);
-  if (index < 0 || !tiles.length) return;
-  const firstInRow = index - index % columns;
-  const lastInRow = Math.min(firstInRow + columns, tiles.length) - 1;
-  inspector.style.setProperty('--selected-offset', `${(index % columns) / columns * 100}%`);
-  if (tiles[lastInRow].nextElementSibling !== inspector) tiles[lastInRow].after(inspector);
+  const slot = shelf.querySelectorAll('.tile-slot')[folder.entries.indexOf(selected)];
+  if (!slot) return;
+  if (inspector.parentElement !== slot) slot.append(inspector);
+  const bounds = shelf.getBoundingClientRect();
+  const anchor = slot.querySelector('.tile').getBoundingClientRect();
+  const left = Math.max(bounds.left, Math.min(anchor.left, bounds.right - inspector.offsetWidth));
+  inspector.style.left = `${left - slot.getBoundingClientRect().left}px`;
+  const roomBelow = window.innerHeight - anchor.bottom;
+  inspector.toggleAttribute('data-above', roomBelow < inspector.offsetHeight + 6 && anchor.top > roomBelow);
 }
 
-new ResizeObserver(placeInspector).observe($('shelf'));
+new ResizeObserver(placeInspector).observe(shelf);
+window.addEventListener('resize', placeInspector);
+document.addEventListener('pointerdown', event => {
+  if (!inspector.hidden && !inspector.parentElement.contains(event.target)) inspector.hidden = true;
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || inspector.hidden || document.querySelector('dialog[open]')) return;
+  if (inspector.contains(document.activeElement)) inspector.parentElement.querySelector('.tile')?.focus();
+  inspector.hidden = true;
+});
 
 function removeEntries(parent, entries) {
   if (!parent) return;

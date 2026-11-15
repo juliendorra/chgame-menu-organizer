@@ -146,16 +146,19 @@ p { color: var(--muted); margin: .48em 0 0; }
 .tile strong { display: block; padding: 7px 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .94rem; }
 .tile small { display: block; padding: 2px 4px 5px; color: var(--muted); font: .66rem/1.4 var(--mono); }
 .inspector {
-  grid-column: 1 / -1; width: min(340px, calc(100% - 24px));
-  margin-inline-start: clamp(12px, calc(var(--selected-offset, 0%) + 12px), max(12px, calc(100% - 352px)));
-  background: var(--panel); border: 1px solid #c9adef; border-radius: 11px;
-  padding: 12px; display: grid; gap: 8px; min-width: 0;
+  position: absolute; z-index: 3; top: calc(100% + 6px);
+  width: min(208px, calc(100vw - 36px)); min-width: 0;
+  background: var(--panel); border: 1px solid #c9adef; border-radius: 9px;
+  padding: 6px; display: grid; gap: 4px; box-shadow: 0 5px 18px #35205226;
 }
-.inspector small { color: var(--muted); font: .72rem var(--mono); overflow-wrap: anywhere; }
-.inspector h2 { overflow-wrap: anywhere; }
-.inspector select { width: 100%; }
-.inspector .controls { display: flex; gap: 6px; }
-.inspector .controls button { flex: 1; padding-inline: .35rem; }
+.inspector[data-above] { top: auto; bottom: calc(100% + 6px); }
+.shelf:has(.tile[data-dragged]) .inspector { visibility: hidden; }
+.inspector h2 { padding-inline: 5px; font-size: .88rem; }
+.inspector :is(button, select) { width: 100%; min-height: 32px; padding: .25rem .45rem; font-size: .85rem; border-radius: 6px; }
+.inspector .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+@media (pointer: coarse) {
+  .inspector :is(button, select) { min-height: 38px; }
+}
 dialog { max-width: min(470px, 92vw); border: 1px solid #c9adef; border-radius: 15px; background: white; color: var(--text); padding: 24px; box-shadow: 0 12px 38px #35205230; }
 dialog::backdrop { background: #35205266; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
