@@ -225,7 +225,7 @@ function render() {
     ? shownFolders.reduce((total, item) => total + item.entries.filter(entry => !entry.directory).length, 0)
     : folder.entries.length - categories;
   $('summary').textContent = folder === offline ? 'Connect your CHGame over USB to open its SD card.' :
-    `${games} ${games === 1 ? 'cart' : 'carts'}  ·  ${categories} ${categories === 1 ? 'category' : 'categories'}`;
+    `${games} ${games === 1 ? 'game' : 'games'}  ·  ${categories} ${categories === 1 ? 'category' : 'categories'}`;
 
   endDrag();
   shelf.replaceChildren(inspector, insertionBar);
