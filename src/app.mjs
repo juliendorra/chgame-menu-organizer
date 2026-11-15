@@ -964,12 +964,12 @@ function importPreview() {
     const count = games.length;
     const destination = await confirmAction({
       title: 'Install to SD?',
-      message: `“${pkg.title}” contains ${count} ${count === 1 ? 'cart' : 'carts'}.`,
+      message: `“${pkg.title}” contains ${count} ${count === 1 ? 'game' : 'games'}.`,
       detail: 'This writes to the SD card now. Existing games and saves are kept.',
       action: 'Install to SD',
       choices: [
         {value: 'package', label: 'Package categories', detail: 'Use the folders declared in the package.'},
-        {value: 'current', label: `Current category · ${folder.title}`, detail: 'Put every cart here.'},
+        {value: 'current', label: `Current category · ${folder.title}`, detail: count === 1 ? 'Install the game here.' : 'Install all games here.'},
       ],
     });
     if (!destination) {
@@ -989,8 +989,8 @@ function importPreview() {
       setSelection([]);
       if (cartPreview === preview) showCartPreview(null);
       finishTransfer('Installation complete', plan.added
-        ? `Installed ${plan.added} ${plan.added === 1 ? 'cart' : 'carts'}. ${plan.games > plan.added ? 'Existing copies were kept.' : ''}`.trim()
-        : 'These carts are already on the SD.');
+        ? `Installed ${plan.added} ${plan.added === 1 ? 'game' : 'games'}. ${plan.games > plan.added ? 'Existing copies were kept.' : ''}`.trim()
+        : count === 1 ? 'This game is already on the SD card.' : 'These games are already on the SD card.');
     } catch (error) {
       stale ||= writing;
       finishTransfer('Installation failed', writing ? `${error.message} Rescan to check which files were written.` : error.message, true);
