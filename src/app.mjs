@@ -1,6 +1,6 @@
 import {chooseCHGame, grantedCHGame, installHelper, Link, SerialCard} from './serial.mjs';
 import {CATEGORY_TITLE_LIMIT, changedFolders, moveCarts, newCategory, organizeFolder, planRemoval, readPoster, renameCategory, resetMenu, sameMenuSnapshot, saveMenu, scanMenu, stageRemoval} from './menu.mjs';
-import {packageGameCount, planImport, preparePackage, writeImport} from './import.mjs';
+import {linkedPackageUrl, packageGameCount, planImport, prepareLinkedPackage, preparePackage, writeImport} from './import.mjs';
 import {coverStyle, generateCover} from './cover.mjs';
 
 const $ = id => document.getElementById(id);
@@ -31,6 +31,7 @@ let reconnectTimer;
 let reconnectPending = false;
 let helperExit;
 let usbState = 'Disconnected';
+let linkedCart;
 
 function el(tag, label, className) {
   const node = document.createElement(tag);
@@ -571,6 +572,7 @@ async function exclusive(action) {
     busy = false;
     render();
     if (reconnectPending) queueReconnect();
+    maybeReviewLinkedCart();
   }
 }
 
@@ -873,14 +875,23 @@ $('undo').onclick = () => {
   setSelection([...selection].filter(entry => folder.entries.includes(entry)));
   render();
   report(guidance);
+  maybeReviewLinkedCart();
 };
 
-function importPackage(file) {
+function maybeReviewLinkedCart() {
+  if (!linkedCart || busy || !card || stale || lostLink || changedFolders(menu).length) return;
+  const url = linkedCart;
+  linkedCart = null;
+  void importPackage(url);
+}
+
+function importPackage(source) {
   return exclusive(async () => {
     if (!card || stale) throw new Error('Connect and scan your CHGame before importing a package');
     if (changedFolders(menu).length) throw new Error('Save or reset the pending menu changes before importing');
-    report(`Preparing ${file.name}…`);
-    const pkg = await preparePackage(file);
+    const linked = source instanceof URL;
+    report(linked ? `Preparing linked cart from ${source.hostname}…` : `Preparing ${source.name}…`);
+    const pkg = linked ? await prepareLinkedPackage(source) : await preparePackage(source);
     const games = packageGameCount(pkg);
     const destination = await confirmAction({
       title: 'Import to SD?',
@@ -989,5 +1000,18 @@ window.addEventListener('beforeunload', event => {
   if ((card && busy) || changedFolders(menu).length) event.preventDefault();
 });
 
+function readLinkedCart() {
+  linkedCart = null;
+  try {
+    linkedCart = linkedPackageUrl(location.href);
+    if (linkedCart && !card) report(`Connect CHGame to review the linked cart from ${linkedCart.hostname}.`);
+  } catch (error) {
+    report(error.message, true);
+  }
+  maybeReviewLinkedCart();
+}
+
+window.addEventListener('hashchange', readLinkedCart);
 render();
+readLinkedCart();
 if (serialEvents) queueReconnect();

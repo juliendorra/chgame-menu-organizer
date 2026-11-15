@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import {ascii, crc32, frame, Frames, grantedCHGame, installHelper, join, Link, SerialCard, view, word} from '../src/serial.mjs';
 import {organizeFolder} from '../src/menu.mjs';
+import {linkedPackageUrl, prepareLinkedPackage, preparePackage} from '../src/import.mjs';
 import {coverStyle, encodeCover} from '../src/cover.mjs';
 
 const vectors = JSON.parse(readFileSync(new URL('./fixtures/vectors.json', import.meta.url)));
@@ -154,4 +155,23 @@ test('auto organize restores the draft order from before the first sort', () => 
   assert.deepEqual(folder.entries, [b, c, a]);
   organizeFolder(folder, 'restore');
   assert.deepEqual(folder.entries, [c, a, b]);
+});
+
+test('linked imports prefer the fragment and prepare an HTTPS cart without credentials', async () => {
+  const url = 'https://example.com/cart.chgame?version=1&release=2';
+  const encoded = encodeURIComponent(url);
+  assert.equal(linkedPackageUrl(`file:///organizer.html?import=https://other.example/cart#${'import=' + encoded}`).href, url);
+  assert.equal(linkedPackageUrl(`https://example.com/organizer.html?import=${encoded}`).href, url);
+  assert.equal(linkedPackageUrl('file:///organizer.html'), null);
+  assert.throws(() => linkedPackageUrl('file:///organizer.html#import=http://example.com/cart'), /HTTPS/);
+  assert.throws(() => linkedPackageUrl('file:///organizer.html#import=https://user:pass@example.com/cart'), /credentials/);
+
+  const bytes = readFileSync(new URL('./fixtures/single.chgame', import.meta.url));
+  const remote = await prepareLinkedPackage(new URL(url), async (requested, options) => {
+    assert.equal(requested.href, url);
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.referrerPolicy, 'no-referrer');
+    return new Response(bytes);
+  });
+  assert.deepEqual(remote, await preparePackage(new File([bytes], 'single.chgame')));
 });

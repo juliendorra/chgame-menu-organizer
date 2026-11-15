@@ -11,6 +11,51 @@ export async function preparePackage(file) {
   return prepareArchive(new Uint8Array(await file.arrayBuffer()));
 }
 
+export function linkedPackageUrl(location) {
+  const params = new URL(location);
+  const value = new URLSearchParams(params.hash.slice(1)).get('import') ?? params.searchParams.get('import');
+  if (value === null) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('The import link needs an absolute HTTPS URL');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new Error('The import link needs an HTTPS URL without credentials');
+  }
+  return url;
+}
+
+export async function prepareLinkedPackage(url, fetcher = fetch) {
+  let response;
+  try {
+    response = await fetcher(url, {
+      credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000),
+    });
+  } catch {
+    throw new Error('Could not download the linked cart. Check that the file host allows cross-origin downloads.');
+  }
+  if (!response.ok || !response.body) throw new Error(`Could not download the linked cart (HTTP ${response.status})`);
+  if (response.url && new URL(response.url).protocol !== 'https:') throw new Error('The cart download redirected away from HTTPS');
+  if (Number(response.headers.get('Content-Length')) > PACKAGE_LIMIT) throw new Error('The package exceeds 64 MiB');
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > PACKAGE_LIMIT) throw new Error('The package exceeds 64 MiB');
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return prepareArchive(new Uint8Array(await new Blob(chunks).arrayBuffer()));
+}
+
 function packageTree(pkg) {
   const files = new Map(pkg.files.map(file => {
     if (file.path.length > 120 || !file.path.split('/').every(part => sfn.test(part)) ||
