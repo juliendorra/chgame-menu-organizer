@@ -1,0 +1,61 @@
+name: Deploy GitHub release relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hosting/cloudflare.mjs'
+      - 'hosting/worker.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chgame-release-relay
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Test the relay
+        run: node --test tests/hosting.test.mjs
+      - name: Replace Worker code
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKER_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
+            echo "::error::Set the Worker-scoped deployment token and Cloudflare account ID."
+            exit 1
+          fi
+          endpoint="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/chgame-release-relay/content"
+          curl --fail-with-body --silent --show-error --request PUT --header @- \
+            --form 'metadata={"main_module":"cloudflare.mjs"};type=application/json' \
+            --form 'cloudflare.mjs=@hosting/cloudflare.mjs;type=application/javascript+module' \
+            --form 'worker.mjs=@hosting/worker.mjs;type=application/javascript+module' \
+            "$endpoint" <<< "Authorization: Bearer $CLOUDFLARE_API_TOKEN" |
+            jq -e '.success == true and .result.id == "chgame-release-relay"'
+      - name: Check the public relay
+        env:
+          RELAY_URL: ${{ vars.RELEASE_RELAY_URL }}
+        run: |
+          set -euo pipefail
+          asset=$(curl --fail --silent --show-error --retry 3 \
+            https://api.github.com/repos/juliendorra/chgame-pinball/releases/latest |
+            jq -ce '[.assets[] | select(.state == "uploaded" and (.name | endswith(".chgame")))] |
+              select(length == 1) | .[0]')
+          url=$(jq -er '.browser_download_url' <<< "$asset")
+          digest=$(jq -er '.digest | capture("^sha256:(?<hash>[a-f0-9]{64})$").hash' <<< "$asset")
+          curl --fail --silent --show-error --retry 3 -H 'Origin: https://juliendorra.com' \
+            --get --data-urlencode "url=$url" \
+            --dump-header "$RUNNER_TEMP/relay-headers" --output "$RUNNER_TEMP/pinball.chgame" "$RELAY_URL"
+          grep -iq '^access-control-allow-origin: https://juliendorra.com' "$RUNNER_TEMP/relay-headers"
+          printf '%s  %s\n' "$digest" "$RUNNER_TEMP/pinball.chgame" | sha256sum --check
