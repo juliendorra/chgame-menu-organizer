@@ -1,0 +1,63 @@
+name: Deploy organizer to OVH
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'firmware/helper.*'
+      - 'hosting/**'
+      - 'build_page.py'
+      - 'tests/**'
+      - '.github/workflows/deploy-ovh.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chgame-menu-organizer-ovh
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Test and build the static page
+        env:
+          RELEASE_RELAY_URL: ${{ vars.RELEASE_RELAY_URL }}
+        run: |
+          node --test tests/*.test.mjs
+          if [[ -n "$RELEASE_RELAY_URL" ]]; then
+            python3 build_page.py --ovh --release-endpoint "$RELEASE_RELAY_URL"
+          else
+            python3 build_page.py --ovh
+          fi
+          python3 -m venv "$RUNNER_TEMP/organizer-sftp"
+          "$RUNNER_TEMP/organizer-sftp/bin/pip" install paramiko==4.0.0
+      - name: Upload using the scoped OVH account
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: '"$RUNNER_TEMP/organizer-sftp/bin/python" hosting/deploy_ovh.py build/ovh/index.html'
+      - name: Verify the public page
+        run: |
+          url="https://juliendorra.com/chgame-menu-organizer/?revision=$GITHUB_SHA"
+          for attempt in {1..5}; do
+            if curl --fail --silent --show-error "$url" --output "$RUNNER_TEMP/organizer.html" &&
+               cmp -s build/ovh/index.html "$RUNNER_TEMP/organizer.html"; then
+              echo "Verified the uploaded page over HTTPS."
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::The HTTPS page differs from the uploaded build."
+          exit 1
